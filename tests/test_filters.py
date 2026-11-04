@@ -56,3 +56,20 @@ def test_quaternion_sign_flip_is_not_a_pop():
     Q = np.stack([np.cos(ang / 2), np.sin(ang / 2), 0 * ang, 0 * ang], 1)
     Q[10:15] *= -1
     assert F.rotation_outliers(Q) == []
+
+
+def test_warp_time_is_monotonic_and_local():
+    t = np.linspace(0, 40, 801)
+    for shift in (-2.8, -1.0, 0.7, 2.8):
+        w = F.warp_time(t, 20, shift, 4)
+        assert np.all(np.diff(w) > 0), shift
+        assert abs(w[400] - 20 - shift) < 1e-9
+        assert np.array_equal(w[:300], t[:300])                  # beyond the radius: exactly untouched
+    assert F.max_retime_shift(4) == 2.8
+
+
+def test_falloff_reaches_zero_at_radius():
+    assert F.falloff(0, 5) == 1.0
+    assert F.falloff(5, 5) == 0.0 and F.falloff(-7, 5) == 0.0
+    assert 0 < F.falloff(3, 5) < F.falloff(1, 5) < 1.0
+    assert np.all(F.falloff(np.arange(-6, 7), 5) >= 0)

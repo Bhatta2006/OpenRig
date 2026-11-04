@@ -1,6 +1,7 @@
 import bpy
 
 from . import rig
+from . import ghosts, trail
 from .operators import _STATE
 
 
@@ -93,4 +94,78 @@ class OPENRIG_PT_fix(bpy.types.Panel):
                 box.label(text=line)
 
 
-CLASSES = (OPENRIG_PT_main, OPENRIG_PT_pose, OPENRIG_PT_fix)
+class OPENRIG_PT_trail(bpy.types.Panel):
+    bl_label = "Motion Trail"
+    bl_idname = "OPENRIG_PT_trail"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "OpenRig"
+    bl_parent_id = "OPENRIG_PT_main"
+    bl_options = {"DEFAULT_CLOSED"}
+    poll = OPENRIG_PT_pose.poll
+
+    def draw(self, context):
+        col = self.layout.column(align=True)
+        p = context.scene.openrig
+        on = trail._T["running"]
+        col.prop(p, "trail_handle", text="")
+        col.prop(p, "trail_radius")
+        col.operator("openrig.trail_edit", text="Stop Trail" if on else "Edit Trail", icon="CURVE_PATH", depress=on)
+        col.label(text="Drag a dot to reshape. Alt+drag to retime.")
+
+
+class OPENRIG_PT_ghosts(bpy.types.Panel):
+    bl_label = "Ghost Frames"
+    bl_idname = "OPENRIG_PT_ghosts"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "OpenRig"
+    bl_parent_id = "OPENRIG_PT_main"
+    bl_options = {"DEFAULT_CLOSED"}
+    poll = OPENRIG_PT_pose.poll
+
+    def draw(self, context):
+        lay = self.layout
+        p = context.scene.openrig
+        col = lay.column(align=True)
+        col.prop(p, "ghost_count")
+        col.prop(p, "ghost_step")
+        col.prop(p, "ghost_spread")
+        row = col.row(align=True)
+        row.operator("openrig.ghosts", text="Refresh" if ghosts.active() else "Show Ghosts", icon="ONIONSKIN_ON")
+        row.operator("openrig.ghosts_clear", text="", icon="X")
+        if ghosts.active() and ghosts._G["frames"]:
+            grid = lay.grid_flow(columns=4, align=True)
+            for f, _ in ghosts._G["frames"]:
+                grid.operator("openrig.goto_frame", text=str(f)).frame = f
+
+
+class OPENRIG_PT_map(bpy.types.Panel):
+    bl_label = "Bone Map"
+    bl_idname = "OPENRIG_PT_map"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "OpenRig"
+    bl_parent_id = "OPENRIG_PT_main"
+    bl_options = {"DEFAULT_CLOSED"}
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.active_object
+        return obj is not None and obj.type == "ARMATURE"
+
+    def draw(self, context):
+        lay = self.layout
+        m = rig.stored_map(context.active_object, validate=False)
+        if m is None:
+            lay.label(text="Run Detect Rig first, or assign bones by hand.")
+        else:
+            for label, name in m.rows():
+                row = lay.row()
+                row.label(text=label)
+                row.label(text=name, icon="BONE_DATA" if name != "-" else "BLANK1")
+        lay.operator_menu_enum("openrig.assign_bone", "role", text="Assign Selected Bone(s) To...",
+                               icon="BONE_DATA")
+
+
+CLASSES = (OPENRIG_PT_main, OPENRIG_PT_pose, OPENRIG_PT_fix, OPENRIG_PT_trail, OPENRIG_PT_ghosts, OPENRIG_PT_map)

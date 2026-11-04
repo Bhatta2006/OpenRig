@@ -344,6 +344,46 @@ class OPENRIG_OT_pose_drag(_Base, bpy.types.Operator):
         _STATE["active"] = None
 
 
+# ---- manual bone map ----------------------------------------------------------
+_ROLE_ITEMS = [("hips", "Hips", ""), ("spine", "Spine (selected, root to tip)", ""),
+               ("neck", "Neck (selected, root to tip)", ""), ("head", "Head", "")]
+for _s in "LR":
+    for _r in ("clavicle", "upperarm", "forearm", "hand", "thigh", "shin", "foot", "toe"):
+        _ROLE_ITEMS.append((f"{_r}.{_s}", f"{_r.title()} {_s}", ""))
+
+
+class OPENRIG_OT_assign_bone(bpy.types.Operator):
+    bl_idname = "openrig.assign_bone"
+    bl_label = "Assign Bone"
+    bl_description = "Set which bone plays a role in the humanoid, using the selected pose bone(s)"
+    bl_options = {"REGISTER", "UNDO"}
+    role: bpy.props.EnumProperty(name="Role", items=_ROLE_ITEMS)
+    clear: bpy.props.BoolProperty(name="Clear", default=False)
+
+    @classmethod
+    def poll(cls, context):
+        return active_rig(context) is not None
+
+    def execute(self, context):
+        obj = active_rig(context)
+        m = rig.stored_map(obj, validate=False) or rig.RigMap()
+        names = [] if self.clear else [pb.name for pb in (context.selected_pose_bones or [])]
+        if not names and not self.clear and context.active_pose_bone:
+            names = [context.active_pose_bone.name]
+        if not names and not self.clear:
+            self.report({"ERROR"}, "Select the bone(s) in Pose Mode first")
+            return {"CANCELLED"}
+        names.sort(key=lambda n: rig.RigSession._depth(obj.data.bones, n))
+        try:
+            m.assign(self.role, names)
+        except ValueError as e:
+            self.report({"ERROR"}, str(e))
+            return {"CANCELLED"}
+        rig.save_map(obj, m)
+        context.scene.openrig.status = "OK: map complete" if m.ok else "Missing: " + ", ".join(m.missing())
+        return {"FINISHED"}
+
+
 # ---- keying ------------------------------------------------------------------
 class OPENRIG_OT_key_pose(_Base, bpy.types.Operator):
     bl_idname = "openrig.key_pose"
@@ -426,6 +466,8 @@ def lock_foot(context, sess, props, side, f0, f1, plant_frame):
     by_key = sk.edge_by_key
     leg_bones = [by_key[k].bone for k in (f"thigh.{side}", f"shin.{side}", f"foot.{side}", f"toe.{side}") if k in by_key]
     keyed = 0
+    all_keyed = list(leg_bones)
+    anchors = rig.capture_anchors(context, sess, (f0 - 1, f1 + 1))
     for f in range(f0, f1 + 1):
         scene.frame_set(f)
         before = sess.snapshot_rot()
@@ -448,6 +490,8 @@ def lock_foot(context, sess, props, side, f0, f1, plant_frame):
         to_key = list(dict.fromkeys(leg_bones + changed))
         sess.key(to_key, f, False)
         keyed += len(to_key)
+        all_keyed = list(dict.fromkeys(all_keyed + to_key))
+    rig.restore_anchors(context, sess, anchors, all_keyed, False)
     scene.frame_set(start)
     return keyed
 
@@ -560,6 +604,6 @@ class OPENRIG_OT_fix_sliding(_Base, bpy.types.Operator):
 
 
 CLASSES = (
-    OPENRIG_OT_detect, OPENRIG_OT_pose_drag, OPENRIG_OT_key_pose, OPENRIG_OT_smooth,
+    OPENRIG_OT_detect, OPENRIG_OT_assign_bone, OPENRIG_OT_pose_drag, OPENRIG_OT_key_pose, OPENRIG_OT_smooth,
     OPENRIG_OT_lock_foot, OPENRIG_OT_motion_check, OPENRIG_OT_fix_sliding,
 )

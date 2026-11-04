@@ -23,7 +23,11 @@ def detect(obj) -> RigMap:
     return m
 
 
-def stored_map(obj) -> RigMap | None:
+def save_map(obj, m: RigMap) -> None:
+    obj[MAP_KEY] = json.dumps(m.to_dict())
+
+
+def stored_map(obj, validate: bool = True) -> RigMap | None:
     raw = obj.get(MAP_KEY)
     if not raw:
         return None
@@ -31,6 +35,8 @@ def stored_map(obj) -> RigMap | None:
         m = RigMap.from_dict(json.loads(raw))
     except Exception:  # corrupt or hand-edited custom property
         return None
+    if not validate:
+        return m
     bones = obj.data.bones
     used = [m.hips, m.head, *m.spine, *m.neck] + [n for s in m.limbs.values() for n in s.values()]
     if any(n and n not in bones for n in used):
@@ -139,6 +145,33 @@ class RigSession:
         h = self.obj.pose.bones[self.map.hips]
         hips_moved = max(abs(a - b) for a, b in zip(h.location, before["__hips_loc"])) > 1e-6
         return out, hips_moved
+
+
+# ---- keeping the edges of an edit pinned to the original animation ------------
+def capture_anchors(context, sess: RigSession, frames) -> dict:
+    """Pose of the mapped bones on ``frames`` before an edit changes the curves around them."""
+    scene, start = context.scene, context.scene.frame_current
+    out = {}
+    for f in frames:
+        scene.frame_set(f)
+        out[f] = sess.snapshot_rot()
+    scene.frame_set(start)
+    return out
+
+
+def restore_anchors(context, sess: RigSession, anchors: dict, bones, hips_moved: bool) -> None:
+    """Put the captured pose back on the anchor frames and key the edited bones there, so an
+    edit never bleeds into the animation outside its frame range."""
+    scene, start = context.scene, context.scene.frame_current
+    pbs = sess.obj.pose.bones
+    for f, snap in anchors.items():
+        scene.frame_set(f)
+        for b in bones:
+            setattr(pbs[b], rotation_path(pbs[b]), snap[b])
+        if hips_moved:
+            pbs[sess.map.hips].location = snap["__hips_loc"]
+        sess.key(list(bones), f, hips_moved)
+    scene.frame_set(start)
 
 
 # ---- rotation property helpers --------------------------------------------

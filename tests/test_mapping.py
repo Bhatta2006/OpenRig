@@ -71,3 +71,64 @@ def test_roundtrip_dict():
     from rigs import make
     _, m, _, _ = make()
     assert RigMap.from_dict(m.to_dict()).to_dict() == m.to_dict()
+
+
+def _rigify(prefix):
+    p = {}
+    def add(n, par=None):
+        p[prefix + n] = (prefix + par) if par else None
+    add("spine"); add("pelvis.L", "spine"); add("pelvis.R", "spine")
+    prev = "spine"
+    for i in range(1, 7):
+        n = f"spine.{i:03d}"; add(n, prev); prev = n
+    for s in "LR":
+        add(f"shoulder.{s}", "spine.003"); add(f"upper_arm.{s}", f"shoulder.{s}")
+        add(f"upper_arm.{s}.001", f"upper_arm.{s}"); add(f"forearm.{s}", f"upper_arm.{s}.001")
+        add(f"hand.{s}", f"forearm.{s}"); add(f"thigh.{s}", "spine"); add(f"shin.{s}", f"thigh.{s}")
+        add(f"foot.{s}", f"shin.{s}"); add(f"toe.{s}", f"foot.{s}")
+        add(f"thigh_fk.{s}", "spine"); add(f"upper_arm_ik.{s}", "spine")
+    return p
+
+
+@pytest.mark.parametrize("prefix", ["DEF-", "ORG-", ""])
+def test_rigify(prefix):
+    m = map_rig(_rigify(prefix))
+    assert m.ok, m.missing()
+    assert m.hips == prefix + "spine" and m.head == prefix + "spine.006"
+    assert m.spine == [prefix + f"spine.00{i}" for i in (1, 2, 3)]
+    assert m.neck == [prefix + "spine.004", prefix + "spine.005"]
+    assert m.limbs["L"]["upperarm"] == prefix + "upper_arm.L"
+    assert m.limbs["R"]["shin"] == prefix + "shin.R" and m.limbs["R"]["toe"] == prefix + "toe.R"
+
+
+def test_assign_roles_by_hand():
+    from openrig.core.mapping import RigMap
+    m = RigMap()
+    m.assign("hips", ["pelvis"]); m.assign("spine", ["s1", "s2"]); m.assign("head", ["head"])
+    m.assign("forearm.L", ["lower_arm_l"])
+    assert m.hips == "pelvis" and m.spine == ["s1", "s2"] and m.limbs["L"]["forearm"] == "lower_arm_l"
+    m.assign("toe.L", ["ball"]); m.assign("toe.L", [])
+    assert "toe" not in m.limbs["L"]
+    with pytest.raises(ValueError):
+        m.assign("wing.L", ["x"])
+    labels = [r[0] for r in m.rows()]
+    assert "Hips" in labels and "Forearm L" in labels
+
+
+def test_assign_validates_input():
+    from openrig.core.mapping import RigMap
+    m = RigMap()
+    m.assign("hips", ["pelvis"])
+    with pytest.raises(ValueError):
+        m.assign("hand.L", ["a", "b"])            # one bone only
+    with pytest.raises(ValueError):
+        m.assign("spine", ["pelvis", "s1"])        # pelvis already hips
+    with pytest.raises(ValueError):
+        m.assign("spine", ["s1", "s1"])
+    m.assign("hips", ["pelvis"])                   # re-assigning the same role is fine
+
+
+def test_partial_rigify_falls_back_to_name_matching():
+    p = {"spine": None, "spine.006": "spine", "Hips": "spine"}
+    m = map_rig(p)
+    assert m.hips != "spine"       # generic path ran instead of returning a half-empty Rigify map

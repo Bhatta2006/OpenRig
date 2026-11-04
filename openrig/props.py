@@ -1,4 +1,5 @@
 import bpy
+from .trail import HANDLE_ITEMS
 from bpy.props import BoolProperty, EnumProperty, FloatProperty, IntProperty, StringProperty
 
 
@@ -21,6 +22,15 @@ class OpenRigProps(bpy.types.PropertyGroup):
     smooth_sigma: FloatProperty(name="Strength", default=2.0, min=0.5, max=12.0,
                                 description="Smoothing width in frames")
     lock_side: EnumProperty(name="Foot", items=[("L", "Left", ""), ("R", "Right", "")], default="L")
+
+    trail_handle: EnumProperty(name="Handle", items=HANDLE_ITEMS, default="Hand L")
+    trail_radius: IntProperty(name="Falloff", default=6, min=0, max=40,
+                              description="Frames on each side of the dragged point that move with it")
+    ghost_count: IntProperty(name="Count", default=3, min=1, max=8, description="Ghosts before and after")
+    ghost_step: IntProperty(name="Step", default=4, min=1, max=60, description="Frames between ghosts")
+    ghost_spread: FloatProperty(name="Spread", default=0.0, min=0.0, max=5.0, unit="LENGTH",
+                                description="Pull ghosts apart sideways, like a strip of frames "
+                                            "(0 = onion skin in place)")
 
     status: StringProperty(name="Status", default="")
     report_text: StringProperty(name="Report", default="")

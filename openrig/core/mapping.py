@@ -109,6 +109,61 @@ class RigMap:
     def ok(self) -> bool:
         return not self.missing()
 
+    def assign(self, role: str, bones: list[str]) -> None:
+        """Set one role by hand. ``role`` is 'hips', 'head', 'spine', 'neck' or
+        '<limb role>.<L|R>' (e.g. 'forearm.L'). ``spine``/``neck`` take bones ordered
+        root to tip; the others take exactly one bone (an empty list clears optional roles)."""
+        single = role in ("hips", "head") or role.partition(".")[0] in LIMB_ROLES
+        if single and len(bones) > 1:
+            raise ValueError(f"{role} takes exactly one bone, got {len(bones)}")
+        if len(set(bones)) != len(bones):
+            raise ValueError("the same bone was given twice")
+        used = self._used_by_others(role)
+        clash = [b for b in bones if b in used]
+        if clash:
+            raise ValueError(f"{clash[0]} is already used as {used[clash[0]]}")
+        if role == "hips":
+            self.hips = bones[0] if bones else None
+        elif role == "head":
+            self.head = bones[0] if bones else None
+        elif role == "spine":
+            self.spine = list(bones)
+        elif role == "neck":
+            self.neck = list(bones)
+        else:
+            name, _, side = role.partition(".")
+            if name not in LIMB_ROLES or side not in SIDES:
+                raise ValueError(f"unknown role {role!r}")
+            if bones:
+                self.limbs[side][name] = bones[0]
+            else:
+                self.limbs[side].pop(name, None)
+
+    def _used_by_others(self, role: str) -> dict[str, str]:
+        used = {}
+        if role != "hips" and self.hips:
+            used[self.hips] = "hips"
+        if role != "head" and self.head:
+            used[self.head] = "head"
+        if role != "spine":
+            used.update({b: "spine" for b in self.spine})
+        if role != "neck":
+            used.update({b: "neck" for b in self.neck})
+        for side, limbs in self.limbs.items():
+            for r, b in limbs.items():
+                if f"{r}.{side}" != role:
+                    used[b] = f"{r}.{side}"
+        return used
+
+    def rows(self) -> list[tuple[str, str]]:
+        """(label, bone names) for display."""
+        out = [("Hips", self.hips or "-"), ("Spine", ", ".join(self.spine) or "-"),
+               ("Neck", ", ".join(self.neck) or "-"), ("Head", self.head or "-")]
+        for s in SIDES:
+            for r in LIMB_ROLES:
+                out.append((f"{r.title()} {s}", self.limbs[s].get(r, "-")))
+        return out
+
     def to_dict(self) -> dict:
         return {"hips": self.hips, "spine": self.spine, "neck": self.neck,
                 "head": self.head, "limbs": self.limbs}
@@ -137,8 +192,39 @@ def _depths(parents: dict[str, str | None]) -> dict[str, int]:
     return depth
 
 
+_RIGIFY_LIMBS = {"clavicle": "shoulder", "upperarm": "upper_arm", "forearm": "forearm", "hand": "hand",
+                 "thigh": "thigh", "shin": "shin", "foot": "foot", "toe": "toe"}
+
+
+def _map_rigify(parents: dict[str, str | None]) -> RigMap | None:
+    """Rigify deformation (DEF-), original (ORG-) or meta rig. Its spine bones are numbered
+    ``spine`` (pelvis), ``spine.001``-``.003`` (back), ``.004``-``.005`` (neck), ``.006`` (head),
+    which name matching alone cannot tell apart."""
+    for prefix in ("DEF-", "ORG-", ""):
+        if f"{prefix}spine" in parents and f"{prefix}spine.006" in parents:
+            break
+    else:
+        return None
+    m = RigMap()
+    m.hips = f"{prefix}spine"
+    m.spine = [f"{prefix}spine.{i:03d}" for i in (1, 2, 3)]
+    m.neck = [f"{prefix}spine.{i:03d}" for i in (4, 5)]
+    m.head = f"{prefix}spine.006"
+    for side in SIDES:
+        for role, base in _RIGIFY_LIMBS.items():
+            name = f"{prefix}{base}.{side}"
+            if name in parents:
+                m.limbs[side][role] = name
+    m.spine = [n for n in m.spine if n in parents]
+    m.neck = [n for n in m.neck if n in parents]
+    return m
+
+
 def map_rig(parents: dict[str, str | None]) -> RigMap:
     """``parents`` maps every bone name to its parent name (or None)."""
+    rigify = _map_rigify(parents)
+    if rigify is not None and rigify.ok:  # a partial match falls through to name matching
+        return rigify
     depth = _depths(parents)
     buckets: dict[tuple[str, str], list[str]] = {}
     for name in parents:

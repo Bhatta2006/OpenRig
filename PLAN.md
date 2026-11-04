@@ -46,12 +46,12 @@ Phase 2 can replace steps 3-4 with a learned pose prior behind the same interfac
 
 | # | Deliverable | Status |
 |---|---|---|
-| 1 | Bone mapping for common humanoid rigs | this PR |
+| 1 | Bone mapping for common humanoid rigs, Rigify, manual assignment | done |
 | 2 | Pull solver + tests | this PR |
 | 3 | Modal drag handles, foot pins, keyframing, undo | this PR |
 | 4 | Smooth (filter selected curves), Lock in Place, Motion Check | this PR |
-| 5 | Motion Trail (edit paths, retime) | later |
-| 6 | Zoetrope (poseable ghost frames) | later |
+| 5 | Motion Trail (edit paths, retime) | done (v0.2) |
+| 6 | Ghost frames (snapshot, spread, jump to frame) | done (v0.2) |
 | 7 | Learned pose prior (needs mocap with a clear license) | later |
 
 ## Testing

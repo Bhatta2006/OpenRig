@@ -78,3 +78,26 @@ def rotation_outliers(Q: np.ndarray, thresh_rad: float = 0.17, factor: float = 6
     peaks = [i for i in flagged
              if dev[i] >= (dev[i - 1] if i > 0 else 0.0) and dev[i] >= (dev[i + 1] if i + 1 < len(dev) else 0.0)]
     return [int(i) + 1 for i in peaks]
+
+
+def falloff(d, radius: float):
+    """Smooth bump: 1 at distance 0, exactly 0 at ``radius`` and beyond. Works on scalars/arrays."""
+    d = np.asarray(d, float)
+    if radius <= 0:
+        return (d == 0).astype(float) if d.ndim else float(d == 0)
+    sigma = radius / 2.0
+    edge = math.exp(-0.5 * (radius / sigma) ** 2)
+    w = np.where(np.abs(d) < radius, (np.exp(-0.5 * (d / sigma) ** 2) - edge) / (1 - edge), 0.0)
+    return w if d.ndim else float(w)
+
+
+def max_retime_shift(radius: float) -> float:
+    """Largest shift for which :func:`warp_time` stays strictly increasing (keys never cross)."""
+    return 0.7 * radius
+
+
+def warp_time(t, center: float, shift: float, radius: float):
+    """Move time ``center`` by ``shift`` frames and its neighbours by a falling-off share of it.
+    Monotonic as long as ``abs(shift) <= max_retime_shift(radius)``."""
+    t = np.asarray(t, float)
+    return t + shift * falloff(t - center, radius)
