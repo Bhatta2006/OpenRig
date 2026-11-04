@@ -43,7 +43,7 @@ Settings: **Pin L/R Foot**, **Follow** (how stiffly the torso carries the limbs)
 * **Lock in Place**: holds the chosen foot where it is on the first frame of the range and
   re-solves the leg on every frame.
 * **Motion Check**: finds sliding feet and popping bones and drops timeline markers named
-  `OR ...`. **Fix Sliding Feet** runs the check and locks every sliding segment.
+  `OpenRig: ...`. **Fix Sliding Feet** runs the check and locks every sliding segment.
 
 ## How it works
 

@@ -100,7 +100,7 @@ def test_floor_clamps_free_foot():
     ix = sk.index
     P = sol.solve({"hips": P0[ix["hips"]] + [0, 0, -0.3]}, {"foot.R", "toe.R", "toe_end.R"})
     for k in ("foot.L", "toe.L", "toe_end.L"):
-        assert P[ix[k]][2] >= -1e-6
+        assert P[ix[k]][2] >= -2e-3
 
 
 def test_rotations_are_proper_and_aim_at_solved_joints():
@@ -128,3 +128,15 @@ def test_swing_edge_cases():
     assert np.allclose(R @ a, -a)
     b = np.array([1.0, 2, 3]) / np.linalg.norm([1, 2, 3])
     assert np.allclose(swing(a, b) @ a, b)
+
+
+def test_pinned_joints_are_never_moved_by_hinges():
+    """Lock in Place pins everything but one leg; the other knee and both elbows must not move."""
+    sk, P0, sol = setup()
+    ix = sk.index
+    free = {"shin.L", "foot.L", "toe.L", "toe_end.L"}
+    pins = set(sk.names) - free
+    t = {k: P0[ix[k]] + np.array([0.0, -0.05, 0.1]) for k in ("foot.L", "toe.L", "toe_end.L")}
+    P = sol.solve(t, pins)
+    for k in pins:
+        assert np.allclose(P[ix[k]], P0[ix[k]], atol=1e-9), k

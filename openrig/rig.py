@@ -29,11 +29,11 @@ def stored_map(obj) -> RigMap | None:
         return None
     try:
         m = RigMap.from_dict(json.loads(raw))
-    except (ValueError, TypeError):
+    except Exception:  # corrupt or hand-edited custom property
         return None
-    names = {b.name for b in obj.data.bones}
+    bones = obj.data.bones
     used = [m.hips, m.head, *m.spine, *m.neck] + [n for s in m.limbs.values() for n in s.values()]
-    if any(n and n not in names for n in used):
+    if any(n and n not in bones for n in used):
         return None  # bones were renamed/deleted since detection
     return m
 

@@ -96,7 +96,17 @@ class OPENRIG_OT_detect(bpy.types.Operator):
 
 
 # ---- drag handles ----------------------------------------------------------
-_STATE = {"running": False, "handler": None, "obj": None, "hover": None, "active": None, "handles": {}}
+_STATE = {"running": False, "handler": None, "obj": None, "hover": None, "active": None, "gen": 0}
+
+
+def _teardown():
+    """Stop the viewport overlay and mark Pose Handles as off. Safe to call twice."""
+    if _STATE["handler"]:
+        try:
+            bpy.types.SpaceView3D.draw_handler_remove(_STATE["handler"], "WINDOW")
+        except (ValueError, RuntimeError):
+            pass
+    _STATE.update(running=False, handler=None, obj=None, hover=None, active=None)
 
 
 def _handle_screen_positions(context, obj, sess_sk, region, rv3d):
@@ -144,8 +154,10 @@ class OPENRIG_OT_pose_drag(_Base, bpy.types.Operator):
 
     # -- lifecycle
     def invoke(self, context, event):
-        if _STATE["running"]:
-            _STATE["running"] = False  # toggle off: the running modal will see this and exit
+        if _STATE["running"]:  # toggle off: tear down now; the old modal sees the new generation and exits
+            _STATE["gen"] += 1
+            _teardown()
+            context.area.tag_redraw()
             return {"CANCELLED"}
         obj = active_rig(context)
         if obj.mode != "POSE":
@@ -161,6 +173,8 @@ class OPENRIG_OT_pose_drag(_Base, bpy.types.Operator):
             return {"CANCELLED"}
         self.rv3d = context.space_data.region_3d
         self.dragging = None
+        _STATE["gen"] += 1
+        self.gen = _STATE["gen"]
         _STATE.update(running=True, obj=obj, sk=self.sess.sk, hover=None, active=None)
         _STATE["handler"] = bpy.types.SpaceView3D.draw_handler_add(_draw_handles, (), "WINDOW", "POST_PIXEL")
         context.window_manager.modal_handler_add(self)
@@ -169,11 +183,12 @@ class OPENRIG_OT_pose_drag(_Base, bpy.types.Operator):
         return {"RUNNING_MODAL"}
 
     def _finish(self, context):
-        if _STATE["handler"]:
-            bpy.types.SpaceView3D.draw_handler_remove(_STATE["handler"], "WINDOW")
-        _STATE.update(running=False, handler=None, obj=None, hover=None, active=None)
-        if self.area:
+        if _STATE["gen"] == self.gen:  # a newer session owns the overlay otherwise
+            _teardown()
+        try:
             self.area.tag_redraw()
+        except ReferenceError:
+            pass
 
     def cancel(self, context):
         self._finish(context)
@@ -183,8 +198,18 @@ class OPENRIG_OT_pose_drag(_Base, bpy.types.Operator):
         return Vector((event.mouse_x - self.region.x, event.mouse_y - self.region.y))
 
     def _inside(self, event):
+        """Mouse is over the viewport itself, not over the sidebar, header or toolbar that
+        overlap it."""
+        for r in self.area.regions:
+            if r.type != "WINDOW" and r.width > 1 and r.height > 1 and \
+                    r.x <= event.mouse_x < r.x + r.width and r.y <= event.mouse_y < r.y + r.height:
+                return False
         r = self.region
         return r.x <= event.mouse_x < r.x + r.width and r.y <= event.mouse_y < r.y + r.height
+
+    def _over_area(self, event):
+        a = self.area
+        return a.x <= event.mouse_x < a.x + a.width and a.y <= event.mouse_y < a.y + a.height
 
     def _pick(self, context, event):
         pos = _handle_screen_positions(context, self.sess.obj, self.sess.sk, self.region, self.rv3d)
@@ -197,22 +222,30 @@ class OPENRIG_OT_pose_drag(_Base, bpy.types.Operator):
         return best
 
     def modal(self, context, event):
-        if not _STATE["running"]:
-            self._finish(context)
-            return {"CANCELLED"}
-        obj = self.sess.obj
-        if active_rig(context) is not obj or obj.mode != "POSE":
+        try:
+            return self._modal(context, event)
+        except ReferenceError:  # armature freed (undo, file load, delete)
             self._finish(context)
             return {"CANCELLED"}
 
-        if event.type == "ESC" and event.value == "PRESS":
+    def _modal(self, context, event):
+        if self.gen != _STATE["gen"] or not _STATE["running"]:
+            return {"CANCELLED"}  # stopped or replaced; whoever did that already tore down
+        obj = self.sess.obj
+        cur = active_rig(context)
+        if cur is None or cur.name != obj.name or obj.mode != "POSE":
+            self._finish(context)
+            return {"CANCELLED"}
+
+        if event.type == "ESC" and event.value == "PRESS" and (self.dragging or self._over_area(event)):
             if self.dragging:
                 self._cancel_drag()
                 context.area.tag_redraw()
                 return {"RUNNING_MODAL"}
             self._finish(context)
             return {"FINISHED"}
-        if event.type in {"RET", "NUMPAD_ENTER"} and event.value == "PRESS" and not self.dragging:
+        if event.type in {"RET", "NUMPAD_ENTER"} and event.value == "PRESS" and not self.dragging \
+                and self._over_area(event):
             self._finish(context)
             return {"FINISHED"}
 
@@ -437,7 +470,7 @@ class OPENRIG_OT_lock_foot(_Base, bpy.types.Operator):
 
 
 # ---- motion check ------------------------------------------------------------
-_MARK = "OR "
+_MARK = "OpenRig: "
 
 
 def run_check(context, sess):
@@ -445,16 +478,16 @@ def run_check(context, sess):
     scene, obj, sk = context.scene, sess.obj, sess.sk
     ix = sk.index
     a, b = frame_range(context)
+    if b - a < 2:
+        raise ValueError("Frame range needs at least 3 frames")
     start = scene.frame_current
     foot = {s: [] for s in "LR"}
     quats = {e.bone: [] for e in sk.edges}
-    up = None
-    leg = 1.0
+    leg = None
     for f in range(a, b + 1):
         scene.frame_set(f)
         P, _ = sess.read()
-        if up is None:
-            up = np.array(obj.matrix_world.to_3x3() @ Vector((0, 0, 1)))
+        if leg is None:
             leg = float(np.linalg.norm(P[ix["foot.L"]] - P[ix["thigh.L"]])) * obj.matrix_world.median_scale
         for s in "LR":
             foot[s].append(np.array(obj.matrix_world @ Vector(P[ix[f"foot.{s}"]])))
@@ -487,14 +520,18 @@ class OPENRIG_OT_motion_check(_Base, bpy.types.Operator):
         scene = context.scene
         for mk in [m for m in scene.timeline_markers if m.name.startswith(_MARK)]:
             scene.timeline_markers.remove(mk)
-        slides, pops = run_check(context, sess)
+        try:
+            slides, pops = run_check(context, sess)
+        except ValueError as e:
+            self.report({"ERROR"}, str(e))
+            return {"CANCELLED"}
         lines = []
         for s in slides:
             scene.timeline_markers.new(f"{_MARK}slide {s['side']}", frame=s["start"])
             lines.append(f"Foot {s['side']} slides {s['drift'] * 100:.1f} cm, frames {s['start']}-{s['end']}")
         for bone, frames in sorted(pops.items(), key=lambda kv: -len(kv[1]))[:8]:
             for f in frames[:3]:
-                scene.timeline_markers.new(f"{_MARK}pop", frame=f)
+                scene.timeline_markers.new(f"{_MARK}pop {bone}", frame=f)
             lines.append(f"{bone}: pops at frames {', '.join(map(str, frames[:5]))}")
         context.scene.openrig.report_text = "\n".join(lines) if lines else "No problems found."
         self.report({"INFO"}, f"{len(slides)} sliding segment(s), {len(pops)} bone(s) with pops")
@@ -510,7 +547,11 @@ class OPENRIG_OT_fix_sliding(_Base, bpy.types.Operator):
         sess = _session(self, context)
         if not sess:
             return {"CANCELLED"}
-        slides, _ = run_check(context, sess)
+        try:
+            slides, _ = run_check(context, sess)
+        except ValueError as e:
+            self.report({"ERROR"}, str(e))
+            return {"CANCELLED"}
         p = context.scene.openrig
         for s in slides:
             lock_foot(context, sess, p, s["side"], s["start"], s["end"], s["start"])

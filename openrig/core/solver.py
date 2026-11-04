@@ -17,6 +17,7 @@ import math
 
 import numpy as np
 
+from .rotations import fit_rotation
 from .skeleton import Skeleton
 
 # fraction of the way a particle is pulled toward "rigidly carried by the torso" per iteration
@@ -51,10 +52,9 @@ class SolveSettings:
 def _kabsch(A: np.ndarray, B: np.ndarray):
     """Rigid transform (R, t) minimising |R A + t - B|."""
     ca, cb = A.mean(0), B.mean(0)
-    H = (A - ca).T @ (B - cb)
-    U, _, Vt = np.linalg.svd(H)
-    d = np.sign(np.linalg.det(Vt.T @ U.T)) or 1.0
-    R = Vt.T @ np.diag([1, 1, d]) @ U.T
+    R = fit_rotation(A - ca, B - cb)
+    if R is None:
+        R = np.eye(3)
     return R, cb - R @ ca
 
 
@@ -150,10 +150,13 @@ class Solver:
                         float(np.linalg.norm(self.P0[ic] - self.P0[ib]))))
         return out
 
-    def _apply_hinges(self, P):
-        """Place knees/elbows exactly (two-bone IK) on the correct side of the limb line."""
+    def _apply_hinges(self, P, fixed=()):
+        """Place knees/elbows exactly (two-bone IK) on the correct side of the limb line.
+        Joints in ``fixed`` (pinned) are left alone."""
         B = self._frame(P)
         for ia, ib, ic, d_body, lat_keep, l1, l2 in self.hinges:
+            if ib in fixed:
+                continue
             ac = P[ic] - P[ia]
             dac = np.linalg.norm(ac)
             if dac < 1e-9:
@@ -212,14 +215,13 @@ class Solver:
             goal = self.P0 @ R.T + t
             P += (goal - P) * (follow * mask)[:, None]
             self._project(P, w, 2)
-            self._apply_hinges(P)
+            self._apply_hinges(P, pin_idx)
             self._floor(P, floor_set, pin_idx, up)
         for _ in range(s.polish):  # final polish: exact bone lengths, then floor
             self._project(P, w_final, 2)
-            self._apply_hinges(P)
+            self._apply_hinges(P, pin_idx)
             self._floor(P, floor_set, pin_idx, up)
-        self._project(P, w_final, 2)
-        self._floor(P, floor_set, pin_idx, up)
+        self._project(P, w_final, 2)   # last: bone lengths exact (floor may be off by a hair)
         return P
 
     def _floor(self, P, idx, pin_idx, up):

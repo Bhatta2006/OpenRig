@@ -60,7 +60,7 @@ def test_motion_check_finds_sliding_and_lock_fixes_it(scene_rig):
     bpy.ops.openrig.motion_check()
     p = bpy.context.scene.openrig
     assert "slides" in p.report_text, p.report_text
-    assert any(m.name.startswith("OR slide") for m in bpy.context.scene.timeline_markers)
+    assert any(m.name.startswith("OpenRig: slide") for m in bpy.context.scene.timeline_markers)
 
     plant = foot_world(scene_rig, 1)
     bpy.context.scene.openrig.lock_side = "L"
@@ -155,3 +155,85 @@ def test_drag_code_path_with_stubbed_viewport(scene_rig, monkeypatch):
     after = sess.snapshot_rot()
     for k, v in stub.before.items():
         assert np.allclose(after[k], v, atol=1e-9), k
+
+
+def test_lock_only_keys_the_locked_leg(scene_rig):
+    key_hips_slide(scene_rig)
+    bpy.context.scene.frame_start, bpy.context.scene.frame_end = 1, 20
+    bpy.context.scene.openrig.lock_side = "L"
+    bpy.ops.openrig.lock_foot()
+    import re
+    bones = {re.match(r'pose\.bones\["(.+)"\]', fc.data_path).group(1)
+             for fc in rig_fcurves(scene_rig.animation_data.action) if fc.data_path.startswith("pose.bones")}
+    assert bones == {"mixamorig:LeftUpLeg", "mixamorig:LeftLeg", "mixamorig:LeftFoot", "mixamorig:LeftToeBase"}
+
+
+def test_motion_markers_do_not_delete_user_markers(scene_rig):
+    sc = bpy.context.scene
+    sc.timeline_markers.new("OR gate", frame=5)
+    key_hips_slide(scene_rig)
+    sc.frame_start, sc.frame_end = 1, 20
+    bpy.ops.openrig.motion_check()
+    bpy.ops.openrig.motion_check()
+    assert "OR gate" in [m.name for m in sc.timeline_markers]
+
+
+def test_motion_check_rejects_tiny_range(scene_rig):
+    sc = bpy.context.scene
+    sc.frame_start, sc.frame_end = 5, 5
+    with pytest.raises(RuntimeError):
+        bpy.ops.openrig.motion_check()
+
+
+def test_corrupt_map_property_does_not_break_polls(scene_rig):
+    scene_rig["openrig_map"] = "[1, 2, 3]"
+    assert rig.stored_map(scene_rig) is None
+    scene_rig["openrig_map"] = "not json"
+    assert rig.stored_map(scene_rig) is None
+
+
+def _modal_stub(obj, gen_offset=0):
+    cls = operators.OPENRIG_OT_pose_drag
+    area = types.SimpleNamespace(regions=[], x=0, y=0, width=10, height=10, tag_redraw=lambda: None)
+    stub = types.SimpleNamespace(sess=types.SimpleNamespace(obj=obj), area=area,
+                                 region=types.SimpleNamespace(x=0, y=0, width=10, height=10),
+                                 dragging=None, gen=operators._STATE["gen"] + gen_offset)
+    stub._over_area = lambda e: cls._over_area(stub, e)
+    stub._inside = lambda e: cls._inside(stub, e)
+    stub._finish = lambda c: cls._finish(stub, c)
+    return cls, stub
+
+
+def test_modal_does_not_cancel_on_object_wrapper_identity(scene_rig):
+    cls, stub = _modal_stub(scene_rig)
+    operators._STATE.update(running=True, obj=scene_rig)
+    # a fresh wrapper of the same armature, like bpy hands out on every access
+    stub.sess.obj = bpy.data.objects[scene_rig.name]
+    ev = types.SimpleNamespace(type="MOUSEMOVE", value="NOTHING", mouse_x=500, mouse_y=500)
+    assert scene_rig.mode == "POSE"
+    assert cls._modal(stub, bpy.context, ev) == {"PASS_THROUGH"}
+    operators._teardown()
+
+
+def test_modal_exits_when_replaced_or_toggled_off(scene_rig):
+    cls, stub = _modal_stub(scene_rig, gen_offset=-1)   # an older session
+    operators._STATE.update(running=True, obj=scene_rig)
+    ev = types.SimpleNamespace(type="MOUSEMOVE", value="NOTHING", mouse_x=1, mouse_y=1)
+    assert cls._modal(stub, bpy.context, ev) == {"CANCELLED"}
+    assert operators._STATE["running"], "an old session must not tear down the new one"
+    operators._teardown()
+    assert not operators._STATE["running"]
+
+
+def test_modal_survives_freed_object(scene_rig):
+    cls, stub = _modal_stub(scene_rig)
+    class Freed:
+        @property
+        def name(self):
+            raise ReferenceError("StructRNA has been removed")
+    stub.sess.obj = Freed()
+    operators._STATE.update(running=True, obj=scene_rig)
+    ev = types.SimpleNamespace(type="MOUSEMOVE", value="NOTHING", mouse_x=1, mouse_y=1)
+    stub._modal = lambda c, e: cls._modal(stub, c, e)
+    assert cls.modal(stub, bpy.context, ev) == {"CANCELLED"}
+    assert not operators._STATE["running"]
