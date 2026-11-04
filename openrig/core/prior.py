@@ -15,6 +15,7 @@ import numpy as np
 
 from .skeleton import Skeleton
 
+N_DIRS = 13
 WEIGHTS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "pose_prior.npz")
 
 
@@ -41,8 +42,10 @@ class Canon:
                      uarm=ix[f"upperarm.{s}"], farm=ix[f"forearm.{s}"], hand=ix[f"hand.{s}"],
                      hend=ix[f"hand_end.{s}"], clav=ix.get(f"clavicle.{s}"))
             self.sides[s] = t
+            # the wrist direction (hand -> fingers) is not predictable from the rest of the body, so
+            # it is deliberately not part of the prior
             dirs += [(t["thigh"], t["shin"]), (t["shin"], t["foot"]), (t["foot"], t["toe"]),
-                     (t["uarm"], t["farm"]), (t["farm"], t["hand"]), (t["hand"], t["hend"])]
+                     (t["uarm"], t["farm"]), (t["farm"], t["hand"])]
         dirs.append((self.sides["L"]["uarm"], self.sides["R"]["uarm"]))   # shoulder line, L -> R
         self.dirs = dirs
         self.n_dirs = len(dirs)
@@ -50,7 +53,7 @@ class Canon:
         self.between_neck = [i for i, n in enumerate(sk.names) if n.startswith("neck") and i not in (self.chest, self.head)]
         self.pull = ([self.head, self.head_top] + self.between_neck
                      + [v for t in self.sides.values() for k, v in t.items()
-                                           if k in ("shin", "foot", "toe", "farm", "hand", "hend")])
+                                           if k in ("shin", "foot", "toe", "farm", "hand")])
 
 
 def forward_sign(canon: Canon, P: np.ndarray) -> float:
@@ -145,8 +148,7 @@ class PriorGoal:
             G[t["toe"]] = G[t["foot"]] + L[i + 2] * d[i + 2]
             G[t["farm"]] = P[t["uarm"]] + L[i + 3] * d[i + 3]   # arms hang off the solver's shoulders
             G[t["hand"]] = G[t["farm"]] + L[i + 4] * d[i + 4]
-            G[t["hend"]] = G[t["hand"]] + L[i + 5] * d[i + 5]
-            i += 6
+            i += 5
         for q, a, b, t, dev in self.interp:
             G[q] = G[a] + t * (G[b] - G[a]) + B @ dev
         return G
@@ -154,12 +156,12 @@ class PriorGoal:
 
 def mirror_features(F: np.ndarray) -> np.ndarray:
     """Left/right mirror of feature vectors (training augmentation). Slot layout:
-    neck, head | 6 left-side dirs | 6 right-side dirs | shoulder line (L->R)."""
-    d = np.asarray(F, float).reshape(F.shape[:-1] + (15, 3)).copy()
+    neck, head | 5 left-side dirs | 5 right-side dirs | shoulder line (L->R)."""
+    d = np.asarray(F, float).reshape(F.shape[:-1] + (N_DIRS, 3)).copy()
     m = np.array([-1.0, 1.0, 1.0])
     out = np.empty_like(d)
     out[..., 0:2, :] = d[..., 0:2, :] * m
-    out[..., 2:8, :] = d[..., 8:14, :] * m
-    out[..., 8:14, :] = d[..., 2:8, :] * m
-    out[..., 14, :] = d[..., 14, :] * np.array([1.0, -1.0, -1.0])
+    out[..., 2:7, :] = d[..., 7:12, :] * m
+    out[..., 7:12, :] = d[..., 2:7, :] * m
+    out[..., 12, :] = d[..., 12, :] * np.array([1.0, -1.0, -1.0])
     return out.reshape(F.shape)

@@ -165,7 +165,7 @@ def test_prior_goal_reconstruction_is_consistent():
     g = PR.PriorGoal(sk, P0, _Identity())
     G = g.goals(P)
     # joints on the canonical chains must be reproduced (to the extent bone lengths still match P0's)
-    for name in ("head", "head_top", "forearm.L", "hand.L", "shin.R", "foot.R", "hand_end.R"):
+    for name in ("head", "head_top", "forearm.L", "hand.L", "shin.R", "foot.R"):
         assert np.linalg.norm(G[sk.index[name]] - P[sk.index[name]]) < 5e-3, name
 
 

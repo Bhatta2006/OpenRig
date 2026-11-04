@@ -9,8 +9,7 @@ import numpy as np
 
 from openrig.core.prior import mirror_features
 
-SIZES = [45, 128, 128, 24, 128, 128, 45]
-GROUPS = [[0, 1], list(range(2, 8)), list(range(8, 14)), [14]]  # slot groups corrupted together
+SIZES = [39, 128, 128, 24, 128, 128, 39]
 
 
 def unit(x):
@@ -19,16 +18,10 @@ def unit(x):
 
 
 def corrupt(X, rng):
-    """Noisy, partly inconsistent version of clean poses: what a constraint solver tends to emit."""
-    n = X.shape[0]
-    sigma = rng.uniform(0.02, 0.35, size=(n, 1))
-    Y = unit(X + rng.normal(size=X.shape) * sigma / np.sqrt(3))
-    donors = X[rng.integers(0, n, size=n)]
-    for g in GROUPS:
-        cols = np.concatenate([np.arange(3 * s, 3 * s + 3) for s in g])
-        hit = rng.random(n) < 0.12
-        Y[np.ix_(hit, cols)] = donors[np.ix_(hit, cols)]
-    return Y
+    """Noisy versions of clean poses (what a constraint solver tends to emit): every direction
+    jittered by up to ~17 degrees. The prior learns which joint-angle combinations are real."""
+    sigma = rng.uniform(0.02, 0.30, size=(X.shape[0], 1))
+    return unit(X + rng.normal(size=X.shape) * sigma / np.sqrt(3))
 
 
 class MLP:
