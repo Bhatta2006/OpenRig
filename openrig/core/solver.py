@@ -17,6 +17,7 @@ import math
 
 import numpy as np
 
+from .prior import PosePrior, PriorGoal
 from .rotations import fit_rotation
 from .skeleton import Skeleton
 
@@ -45,6 +46,8 @@ class SolveSettings:
     effector_pull: float = 0.85
     polish_effector_weight: float = 1.0   # <1 keeps targets stiffer during the final length polish
     floor: bool = False
+    prior: PosePrior | None = None     # learned pose prior (None = off)
+    prior_strength: float = 0.6       # 0..1
     floor_height: float = 0.0     # along ``up``
     up: tuple = (0.0, 0.0, 1.0)
 
@@ -96,6 +99,7 @@ class Solver:
 
         self._init_frame()
         self.hinges = self._build_hinges()
+        self.goal = PriorGoal(sk, self.P0, self.s.prior) if self.s.prior is not None else None
         # (i, j, length, is_max_only): bone lengths/rigid groups are equalities, reach limits are maxima
         self._cons = [(i, j, L, False) for i, j, L in self.dist]
         for ia, _ib, ic, _d, _lk, l1, l2 in self.hinges:
@@ -214,6 +218,10 @@ class Solver:
             R, t = _kabsch(self.P0[torso], P[torso])
             goal = self.P0 @ R.T + t
             P += (goal - P) * (follow * mask)[:, None]
+            if self.goal is not None:
+                G = self.goal.goals(P)
+                idx = self.goal.pull_idx
+                P[idx] += (G[idx] - P[idx]) * (0.4 * s.prior_strength * mask[idx])[:, None]
             self._project(P, w, 2)
             self._apply_hinges(P, pin_idx)
             self._floor(P, floor_set, pin_idx, up)

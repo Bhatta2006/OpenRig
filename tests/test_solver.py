@@ -140,3 +140,58 @@ def test_pinned_joints_are_never_moved_by_hinges():
     P = sol.solve(t, pins)
     for k in pins:
         assert np.allclose(P[ix[k]], P0[ix[k]], atol=1e-9), k
+
+
+# ---------------- pose prior plumbing (no trained weights needed) ----------------
+from openrig.core import prior as PR   # noqa: E402
+
+
+class _Identity:
+    """A 'perfect' prior: returns what it is given. Reconstruction must then be a no-op."""
+    def project(self, x):
+        return np.asarray(x)
+
+
+def _bent_pose():
+    sk, P0, sol = setup()
+    ix = sk.index
+    t = P0[ix["hand.L"]] + np.array([-0.2, -0.45, 0.25])
+    P = sol.solve({"hand.L": t, "hips": P0[ix["hips"]] + [0, 0, -0.12]}, PINS)
+    return sk, P0, P
+
+
+def test_prior_goal_reconstruction_is_consistent():
+    sk, P0, P = _bent_pose()
+    g = PR.PriorGoal(sk, P0, _Identity())
+    G = g.goals(P)
+    # joints on the canonical chains must be reproduced (to the extent bone lengths still match P0's)
+    for name in ("head", "head_top", "forearm.L", "hand.L", "shin.R", "foot.R", "hand_end.R"):
+        assert np.linalg.norm(G[sk.index[name]] - P[sk.index[name]]) < 5e-3, name
+
+
+def _mate(name):
+    return name[:-1] + ("R" if name.endswith("L") else "L") if name.endswith((".L", ".R")) else name
+
+
+def test_feature_mirror_matches_geometric_mirror():
+    sk, P0, P = _bent_pose()
+    c = PR.Canon(sk)
+    sign = PR.forward_sign(c, P0)
+    f = PR.features(c, P, sign)
+    Pm = np.zeros_like(P)
+    for i, n in enumerate(sk.names):
+        Pm[sk.index[_mate(n)]] = P[i] * np.array([-1, 1, 1.0])   # reflect across the sagittal plane
+    assert np.allclose(PR.mirror_features(f), PR.features(c, Pm, sign), atol=1e-6)
+    assert np.allclose(PR.mirror_features(PR.mirror_features(f)), f)
+
+
+def test_solver_with_prior_keeps_all_hard_constraints():
+    sk, P0, sol0 = setup()
+    ix = sk.index
+    s = SolveSettings(prior=_Identity(), prior_strength=1.0)
+    sol = Solver(sk, P0, s)
+    t = P0[ix["hand.L"]] + np.array([-0.2, -0.4, 0.3])
+    P = sol.solve({"hand.L": t}, PINS)
+    assert sol.max_length_error(P) < 1e-2
+    for p in PINS:
+        assert np.allclose(P[ix[p]], P0[ix[p]], atol=1e-9)

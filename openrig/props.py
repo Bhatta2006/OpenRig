@@ -13,6 +13,10 @@ class OpenRigProps(bpy.types.PropertyGroup):
                                          "Lower = looser, floppier; higher = stiffer")
     floor: BoolProperty(name="Floor", default=False,
                         description="Stop free feet from sinking below the height they started at")
+    use_prior: BoolProperty(name="Learned Pose Prior", default=True,
+                            description="Nudge the body toward poses a real person could take, learned from "
+                                        "motion capture. Off = geometry-only solver")
+    prior_strength: FloatProperty(name="Prior Strength", default=0.6, min=0.0, max=1.0)
     auto_key: BoolProperty(name="Auto-Key", default=True,
                            description="Insert keyframes on the bones that changed when a drag ends")
 

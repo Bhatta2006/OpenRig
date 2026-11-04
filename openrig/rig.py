@@ -10,6 +10,7 @@ from mathutils import Matrix, Quaternion, Vector
 from .core.mapping import RigMap, map_rig
 from .core.rotations import solve_rotations
 from .core.skeleton import Skeleton, build_skeleton
+from .core.prior import PosePrior
 from .core.solver import Solver, SolveSettings
 
 MAP_KEY = "openrig_map"
@@ -208,6 +209,20 @@ def pose_bone_rotation_quat(pb) -> Quaternion:
     return pb.rotation_euler.to_quaternion()
 
 
+_PRIOR = {"loaded": False, "prior": None}
+
+
+def get_prior():
+    """The bundled learned pose prior, or None if the weights file is missing/unreadable."""
+    if not _PRIOR["loaded"]:
+        _PRIOR["loaded"] = True
+        try:
+            _PRIOR["prior"] = PosePrior.load()
+        except Exception:
+            _PRIOR["prior"] = None
+    return _PRIOR["prior"]
+
+
 # ---- solver wiring ---------------------------------------------------------
 def settings_from_props(props, sess: RigSession, P0, live: bool) -> SolveSettings:
     up = sess.up_local()
@@ -215,6 +230,8 @@ def settings_from_props(props, sess: RigSession, P0, live: bool) -> SolveSetting
                  if k in sess.sk.index)
     s = SolveSettings(stiffness=props.stiffness, floor=props.floor, floor_height=foot_h - 1e-4,
                       up=tuple(up))
+    if props.use_prior:
+        s.prior, s.prior_strength = get_prior(), props.prior_strength
     if live:
         s.iterations, s.polish = 14, 30
     else:

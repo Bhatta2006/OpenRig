@@ -52,6 +52,11 @@ class OPENRIG_PT_pose(bpy.types.Panel):
         row.prop(p, "pin_foot_r", text="Pin R Foot", toggle=True, icon="PINNED")
         col.prop(p, "stiffness")
         row = col.row(align=True)
+        row.prop(p, "use_prior", text="Pose Prior", toggle=True, icon="OUTLINER_OB_ARMATURE")
+        sub = row.row(align=True)
+        sub.active = p.use_prior
+        sub.prop(p, "prior_strength", text="")
+        row = col.row(align=True)
         row.prop(p, "floor", toggle=True)
         row.prop(p, "auto_key", toggle=True)
         col.operator("openrig.key_pose", icon="KEYFRAME")
