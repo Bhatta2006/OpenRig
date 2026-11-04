@@ -480,6 +480,7 @@ def lock_foot(context, sess, props, side, f0, f1, plant_frame):
                 break
             settings = rig.settings_from_props(props, sess, P, live=False)
             settings.floor = False
+            settings.prior = None                  # holding a foot exactly beats looking natural
             settings.polish_effector_weight = 0.1  # the planted foot is a hard goal
             Pn = Solver(sk, P, settings).solve(targets, pins)
             sess.write(solve_rotations(sk, P, Pn, R))

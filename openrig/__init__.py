@@ -1,7 +1,7 @@
 bl_info = {
     "name": "OpenRig",
     "author": "OpenRig contributors",
-    "version": (0, 2, 0),
+    "version": (0, 3, 0),
     "blender": (3, 6, 0),
     "location": "View3D > Sidebar > OpenRig",
     "description": "Drag a hand, foot, hips or head and the whole humanoid body follows. "

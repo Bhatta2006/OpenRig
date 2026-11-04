@@ -41,12 +41,27 @@ def clips(root, n):
     return out, [pairs[k] for k in sorted(pick)]
 
 
+def align(P0, G):
+    """Turn and move the start pose (about the vertical axis, through the hips) so it faces the same
+    way as the target pose. Otherwise a pose that merely faces another direction dominates the error."""
+    ix = SK.index
+    def facing(P):
+        f = sum(P[ix[f"toe_end.{s}"]] - P[ix[f"foot.{s}"]] for s in "LR")
+        return np.arctan2(f[0], f[2])             # CMU: Y is up
+    a = facing(G) - facing(P0)
+    c, s_ = np.cos(a), np.sin(a)
+    R = np.array([[c, 0, s_], [0, 1, 0], [-s_, 0, c]])
+    h0 = P0[ix["hips"]]
+    return (P0 - h0) @ R.T + G[ix["hips"]]
+
+
 def evaluate(root, prior, strengths, n):
     data, pairs = clips(root, n)
     ix = SK.index
     res = {s: {k: [] for k in MEASURED} for s in strengths}
     for c, i in pairs:
-        P0, G = data[c][0], data[c][i]
+        G = data[c][i]
+        P0 = align(data[c][0], G)
         torso = np.linalg.norm(G[ix["neck0"]] - G[ix["hips"]])
         targets = {k: G[ix[k]] for k in CONSTRAINED}
         for s in strengths:

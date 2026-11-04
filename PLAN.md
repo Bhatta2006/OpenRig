@@ -52,7 +52,7 @@ Phase 2 can replace steps 3-4 with a learned pose prior behind the same interfac
 | 4 | Smooth (filter selected curves), Lock in Place, Motion Check | this PR |
 | 5 | Motion Trail (edit paths, retime) | done (v0.2) |
 | 6 | Ghost frames (snapshot, spread, jump to frame) | done (v0.2) |
-| 7 | Learned pose prior (needs mocap with a clear license) | later |
+| 7 | Learned pose prior (CMU mocap, denoising autoencoder) | done (v0.3), modest gain |
 
 ## Testing
 

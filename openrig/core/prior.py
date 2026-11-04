@@ -51,7 +51,7 @@ class Canon:
         self.n_dirs = len(dirs)
         # particles strictly between spine0 and chest / chest and head: interpolated
         self.between_neck = [i for i, n in enumerate(sk.names) if n.startswith("neck") and i not in (self.chest, self.head)]
-        self.pull = ([self.head, self.head_top] + self.between_neck
+        self.pull = (self.between_neck
                      + [v for t in self.sides.values() for k, v in t.items()
                                            if k in ("shin", "foot", "toe", "farm", "hand")])
 
