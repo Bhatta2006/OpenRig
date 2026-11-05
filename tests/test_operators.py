@@ -430,3 +430,36 @@ def test_ghosts_remember_sampling_settings(scene_rig):
     p.ghost_step = 9
     assert ghosts._G["step"] == 4 and ghosts._G["count"] == 2
     bpy.ops.openrig.ghosts_clear()
+
+
+def test_goto_ghost_frame_operator(scene_rig):
+    bpy.context.scene.frame_set(1)
+    bpy.ops.openrig.goto_frame(frame=17)
+    assert bpy.context.scene.frame_current == 17
+
+
+def test_trail_edit_uses_each_frames_object_transform(scene_rig):
+    sess = animate_hand(scene_rig, frames=14)
+    scene = bpy.context.scene
+    scene.openrig.use_prior = False
+    for frame, scale in ((1, 1.0), (14, 4.0)):
+        scene_rig.scale = (scale,) * 3
+        scene_rig.keyframe_insert("scale", frame=frame)
+    before = {frame: hand_world(scene_rig, frame) for frame in range(1, 15)}
+    scene.frame_set(14)
+    delta = np.array((0.0, 0.0, 0.18))
+    trail.apply_trail_edit(bpy.context, sess, scene.openrig, "Hand L", 7, delta, 3, 1, 14)
+    assert scene.frame_current == 14
+    moved = hand_world(scene_rig, 7) - before[7]
+    assert np.linalg.norm(moved - delta) < 0.025, moved
+
+
+def test_motion_check_detects_pop_with_nonunit_quaternion_keys(scene_rig):
+    arm = scene_rig.pose.bones["mixamorig:LeftForeArm"]
+    for frame in range(1, 31):
+        angle = 0.02 * frame + (0.6 if frame == 15 else 0.0)
+        arm.rotation_quaternion = (2 * np.cos(angle / 2), 2 * np.sin(angle / 2), 0, 0)
+        arm.keyframe_insert("rotation_quaternion", frame=frame)
+    bpy.context.scene.frame_start, bpy.context.scene.frame_end = 1, 30
+    bpy.ops.openrig.motion_check()
+    assert "LeftForeArm: pops at frames 15" in bpy.context.scene.openrig.report_text
