@@ -11,7 +11,7 @@ Drag one or more joints (effectors) and the rest of the body follows:
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import math
 
@@ -68,7 +68,6 @@ class Solver:
         self.sk, self.s = sk, settings or SolveSettings()
         self.P0 = np.array(P0, float)
         ix = sk.index
-        n = len(sk.names)
 
         self.dist: list[tuple[int, int, float]] = []
         seen = set()

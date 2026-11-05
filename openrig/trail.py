@@ -47,7 +47,6 @@ def apply_trail_edit(context, sess, props, label, frame, delta_world, radius, f0
     scene, obj, sk = context.scene, sess.obj, sess.sk
     start = scene.frame_current
     lo, hi = max(f0, frame - radius), min(f1, frame + radius)
-    delta_local = np.array(obj.matrix_world.to_3x3().inverted_safe() @ Vector(delta_world))
     anchors = rig.capture_anchors(context, sess, (lo - 1, hi + 1))
     # Read the ORIGINAL pose of every frame first: keys inserted while editing would otherwise
     # change what later frames evaluate to, and the edit would stack on itself.
@@ -55,11 +54,14 @@ def apply_trail_edit(context, sess, props, label, frame, delta_world, radius, f0
     for fr in range(lo, hi + 1):
         scene.frame_set(fr)
         P, R = sess.read()
-        originals[fr] = (P, R, sess.snapshot_rot())
+        # Object rotation/scale can be animated: the same world-space drag has a
+        # different armature-space direction and size on each sampled frame.
+        delta_local = np.array(obj.matrix_world.to_3x3().inverted_safe() @ Vector(delta_world))
+        originals[fr] = (P, R, sess.snapshot_rot(), delta_local)
     touched, hips_moved = [], False
     for fr in range(lo, hi + 1):
         w = falloff(fr, frame, radius)
-        P, R, before = originals[fr]
+        P, R, before, delta_local = originals[fr]
         scene.frame_set(fr)
         target = P[sk.index[sk.handles[label]]] + delta_local * w
         pins = set()

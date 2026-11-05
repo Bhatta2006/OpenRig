@@ -19,7 +19,6 @@ def test_smooth_constant_is_constant():
 
 
 def _walk(n=60):
-    t = np.arange(n)
     x = np.zeros(n)
     z = np.zeros(n)
     z[20:40] = 0.0      # planted

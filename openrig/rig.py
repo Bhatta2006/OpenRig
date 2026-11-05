@@ -3,15 +3,13 @@ from __future__ import annotations
 
 import json
 
-import bpy
 import numpy as np
 from mathutils import Matrix, Quaternion, Vector
 
 from .core.mapping import RigMap, map_rig
-from .core.rotations import solve_rotations
 from .core.skeleton import Skeleton, build_skeleton
 from .core.prior import PosePrior
-from .core.solver import Solver, SolveSettings
+from .core.solver import SolveSettings
 
 MAP_KEY = "openrig_map"
 
@@ -202,7 +200,9 @@ def set_rotation(pb, q: Quaternion):
 def pose_bone_rotation_quat(pb) -> Quaternion:
     mode = pb.rotation_mode
     if mode == "QUATERNION":
-        return pb.rotation_quaternion.copy()
+        # Animation channels need not store a unit quaternion, even though Blender
+        # evaluates their orientation as one. Pop detection compares unit rotations.
+        return pb.rotation_quaternion.normalized()
     if mode == "AXIS_ANGLE":
         a = pb.rotation_axis_angle
         return Quaternion(Vector(a[1:]), a[0])
